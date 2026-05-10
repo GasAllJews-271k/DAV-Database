@@ -103,7 +103,7 @@ export function Modal({ title, body, onConfirm, onCancel }: {
 }
 
 export const CARD: React.CSSProperties = { background: "#060a0b", border: "1px solid #0e1a22", padding: 20 };
-export const INP: React.CSSProperties = { background: "#030506", border: "1px solid #0e1a22", color: "#b0c4d4", padding: "8px 12px", fontFamily: "'Courier New',monospace", fontSize: 11, outline: "none", width: "100%", boxSizing: "border-box" };
+export const INP: React.CSSProperties = { background: "#030506", border: "1px solid #0e1a22", color: "#b0c4d4", padding: "8px 12px", fontFamily: "'Courier New',monospace", fontSize: 16, outline: "none", width: "100%", boxSizing: "border-box" };
 export const LBL: React.CSSProperties = { color: "#1a3a4a", fontSize: 9, letterSpacing: 3, fontFamily: "'Courier New',monospace", display: "block", marginBottom: 5, textTransform: "uppercase" };
 export const btn = (c = "#00ff88"): React.CSSProperties => ({ background: c + "08", border: "1px solid " + c + "28", color: c, padding: "7px 16px", fontFamily: "'Courier New',monospace", fontSize: 10, letterSpacing: 2, cursor: "pointer", textTransform: "uppercase", transition: "all 0.15s" });
 

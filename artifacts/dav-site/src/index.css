@@ -9,6 +9,15 @@ body {
   color: #c8d6e5;
   font-family: 'Courier New', monospace;
   min-height: 100vh;
+  -webkit-text-size-adjust: 100%;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px !important;
+  -webkit-appearance: none;
+  border-radius: 0;
 }
 
 @keyframes blink {
