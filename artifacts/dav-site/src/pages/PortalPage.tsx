@@ -1,6 +1,93 @@
+import { useState, useEffect } from "react";
+import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { type Session, type Announcement, type GameEvent, RANK_META, canManage, canLog } from "@/types";
-import { prioColor } from "@/lib/helpers";
-import { Badge, ClearancePill, CARD, btn, PageWrap, Divider } from "@/components/Primitives";
+import { prioColor, evTypeColor } from "@/lib/helpers";
+import { Badge, ClearancePill, CARD, btn, PageWrap, Divider, Dot } from "@/components/Primitives";
+
+interface FeedEntry {
+  text: string;
+  eventTitle: string;
+  eventType: string;
+  ts: string;
+  sortKey: string;
+}
+
+function parseFeedEntry(raw: string, eventTitle: string, eventType: string): FeedEntry {
+  const match = raw.match(/^\[([^\]]+)\]\s*\[([^\]]+)\]\s*\[CL-(\d)\]\s*(.*)/);
+  if (match) {
+    return { ts: match[1], text: match[4], eventTitle, eventType, sortKey: match[1] };
+  }
+  return { ts: "", text: raw, eventTitle, eventType, sortKey: "" };
+}
+
+function ActivityFeed() {
+  const [entries, setEntries] = useState<FeedEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, "events"), orderBy("createdAt", "desc"));
+    return onSnapshot(q, snap => {
+      const all: FeedEntry[] = [];
+      snap.docs.forEach(d => {
+        const ev = d.data() as GameEvent;
+        (ev.log || []).forEach(line => {
+          all.push(parseFeedEntry(line, ev.title, ev.type));
+        });
+      });
+      all.sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+      setEntries(all.slice(0, 20));
+      setLoading(false);
+    });
+  }, []);
+
+  return (
+    <div style={CARD}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ color: "#1a3a4a", fontFamily: "'Courier New',monospace", fontSize: 8, letterSpacing: 3 }}>LIVE ACTIVITY FEED</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "'Courier New',monospace", fontSize: 8, color: "#2a6b3c" }}>
+          <Dot color="#00ff88" size={6} />
+          REAL-TIME
+        </div>
+      </div>
+
+      {loading && (
+        <div style={{ color: "#1a3a4a", fontFamily: "'Courier New',monospace", fontSize: 10, textAlign: "center", padding: 20 }}>
+          LOADING ENTRIES...
+        </div>
+      )}
+
+      {!loading && entries.length === 0 && (
+        <div style={{ color: "#0e1a22", fontFamily: "'Courier New',monospace", fontSize: 10, textAlign: "center", padding: 20 }}>
+          // NO LOG ENTRIES YET
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {entries.map((e, i) => (
+          <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "#040709", border: "1px solid #0a1218", padding: "8px 12px" }}>
+            <div style={{ flexShrink: 0, marginTop: 1 }}>
+              <Badge label={e.eventType || "—"} color={evTypeColor(e.eventType)} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "'Courier New',monospace", fontSize: 9, color: "#2a6b3c", marginBottom: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span>{e.eventTitle}</span>
+                {e.ts && <span style={{ color: "#1a3a4a" }}>— {e.ts}</span>}
+              </div>
+              <div style={{ fontFamily: "'Courier New',monospace", fontSize: 10, color: "#3a5a6a", lineHeight: 1.6, wordBreak: "break-word" }}>{e.text}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {entries.length === 20 && (
+        <div style={{ color: "#1a3a4a", fontFamily: "'Courier New',monospace", fontSize: 8, textAlign: "center", marginTop: 10, letterSpacing: 2 }}>
+          SHOWING 20 MOST RECENT ENTRIES
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface PortalProps {
   session: Session;
@@ -81,6 +168,10 @@ export default function PersonnelPortal({ session, setPage, events, announcement
             </div>
           </div>
         )}
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <ActivityFeed />
       </div>
 
       {pubAnns.length > 0 && (
