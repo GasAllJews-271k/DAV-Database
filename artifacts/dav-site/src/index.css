@@ -1,0 +1,41 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #040608;
+  color: #c8d6e5;
+  font-family: 'Courier New', monospace;
+  min-height: 100vh;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(1.5); }
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #040608; }
+::-webkit-scrollbar-thumb { background: #0e1a22; }
+
+input::placeholder,
+textarea::placeholder { color: #0e1a22; }
+
+select option {
+  background: #040608;
+  color: #b0c4d4;
+}
+
+textarea,
+input,
+select,
+button {
+  font-family: 'Courier New', monospace;
+}

@@ -1,45 +1,60 @@
-# [Project name]
+# D.A.V. Classified Database
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A classified intelligence database web app for the Dawnbound Achivum Vanguard — a Roblox group. Members can view lore, factions, threats, and events publicly, and log in to access a personnel portal with role-based admin tools.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/dav-site run dev` — run the frontend (auto-started via workflow)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Frontend: React + Vite (artifacts/dav-site)
+- Backend: Firebase (Auth + Firestore) — no Replit DB used
+- Styling: Inline styles, Courier New monospace, dark terminal aesthetic
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/dav-site/src/lib/firebase.ts` — Firebase config and initialized instances (auth, db)
+- `artifacts/dav-site/src/types.ts` — Shared types, RANK_META, permission helpers
+- `artifacts/dav-site/src/lib/helpers.ts` — Date/color utility functions
+- `artifacts/dav-site/src/components/` — Navbar, Footer, AnnouncementBanner, Primitives
+- `artifacts/dav-site/src/pages/` — All page components
+- `artifacts/dav-site/src/App.tsx` — Root app with auth state, page routing, Firebase listeners
+
+## Firebase Collections
+
+- `users` — Personnel profiles (uid, email, username, level, rank)
+- `events` — Game events (title, date, type, status, host, desc, published, log[])
+- `announcements` — Broadcasts (title, content, priority, published, date)
+
+## Firestore Security Rules (required)
+
+Public reads on `events` and `announcements`, auth-only for writes. `users` requires auth for all access.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- No React Router — simple `page` state string with guard function for auth/permission checks
+- Firebase direct client SDK — no backend proxy; Firestore listeners (`onSnapshot`) provide real-time updates
+- Rank system: level 1-6 integers; `canManage(l >= 5)` and `canLog(l >= 3)` gate admin features
+- User creation uses Firebase REST Identity Toolkit API directly (allows admin to create accounts without signing out)
+- All components use inline styles to match the dark terminal aesthetic without Tailwind conflicts
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Public pages: Home (terminal bootup hero), Lore, Factions, Enemies (threat DB), Events, Ranks, Rules.
+Auth pages: Login (Firebase email/password), Personnel Portal.
+Admin tools (CL-5+): Event Manager, Announcement Manager, User Manager.
+Field tools (CL-3+): Operation Log.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+_Populate as you build._
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Firebase CDN imports are gone — always import from `firebase/*` npm package paths
+- The `events` and `announcements` Firestore collections need public read rules or the home/events pages will show empty
+- User Manager creates accounts via Firebase REST API (Identity Toolkit) so the admin stays logged in while creating new accounts

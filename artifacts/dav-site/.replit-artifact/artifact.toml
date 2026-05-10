@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "D.A.V. Classified Database"
+version = "1.0.0"
+id = "artifacts/dav-site"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21090
+
+[services.development]
+run = "pnpm --filter @workspace/dav-site run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/dav-site", "run", "build" ]
+publicDir = "artifacts/dav-site/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21090"
+BASE_PATH = "/"

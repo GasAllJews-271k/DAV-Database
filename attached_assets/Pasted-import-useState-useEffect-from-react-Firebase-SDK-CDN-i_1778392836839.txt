@@ -1,0 +1,1054 @@
+import { useState, useEffect } from "react";
+
+// ── Firebase SDK (CDN imports via esm.sh) ─────────────────────────────────────
+import { initializeApp }                        from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+                                                from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, query, orderBy }
+                                                from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey:            "AIzaSyDdJPsAPlW8ugiLfDfYg-M9gTdMfk8k0RE",
+  authDomain:        "d-a-v-backend-server.firebaseapp.com",
+  projectId:         "d-a-v-backend-server",
+  storageBucket:     "d-a-v-backend-server.firebasestorage.app",
+  messagingSenderId: "114379042903",
+  appId:             "1:114379042903:web:0ff1bac1413ea02f89b312",
+};
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const DISCORD = "https://discord.gg/rK2BwaHH";
+const GAME    = "https://www.roblox.com/games/10899299831/Remnants";
+const NAV_LINKS = ["Home","Lore","Factions","Enemies","Events","Ranks","Rules"];
+
+const RANK_META = {
+  6:{ label:"Director",          color:"#00ff88" },
+  5:{ label:"Division Director", color:"#c47a1e" },
+  4:{ label:"Senior Operative",  color:"#8aaabb" },
+  3:{ label:"Operative",         color:"#3a6a8a" },
+  2:{ label:"Associate",         color:"#5a9a7a" },
+  1:{ label:"Recruit",           color:"#4a5a6a" },
+};
+
+const canManage = l => l >= 5;
+const canLog    = l => l >= 3;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const fmtDate     = d => { try { return new Date(d).toLocaleDateString("en-US",{year:"numeric",month:"short",day:"numeric"}); } catch{ return d||""; }};
+const fmtTS       = () => new Date().toISOString().replace("T"," ").slice(0,16)+" UTC";
+const tierColor   = t => t<=2?"#2a6b3c":t<=4?"#c47a1e":"#8b1a1a";
+const statColor   = s => s==="Safe"?"#2a6b3c":s==="Caution"?"#c47a1e":"#8b1a1a";
+const evStatColor = s => ({Upcoming:"#00ff88",Ongoing:"#c47a1e",Completed:"#3a6b4a",Cancelled:"#8b1a1a"})[s]||"#3a5a6a";
+const evTypeColor = t => ({Training:"#2a6b3c",Official:"#00ff88",Research:"#3a5a8a",Emergency:"#8b1a1a"})[t]||"#3a5a6a";
+const prioColor   = p => ({Normal:"#3a5a6a",High:"#c47a1e",Critical:"#8b1a1a"})[p]||"#3a5a6a";
+
+// ── Shared styles ─────────────────────────────────────────────────────────────
+const INP  = { background:"#030506",border:"1px solid #0e1a22",color:"#b0c4d4",padding:"8px 12px",fontFamily:"'Courier New',monospace",fontSize:11,outline:"none",width:"100%",boxSizing:"border-box" };
+const LBL  = { color:"#1a3a4a",fontSize:9,letterSpacing:3,fontFamily:"'Courier New',monospace",display:"block",marginBottom:5,textTransform:"uppercase" };
+const CARD = { background:"#060a0b",border:"1px solid #0e1a22",padding:20 };
+const btn  = (c="#00ff88") => ({ background:c+"08",border:"1px solid "+c+"28",color:c,padding:"7px 16px",fontFamily:"'Courier New',monospace",fontSize:10,letterSpacing:2,cursor:"pointer",textTransform:"uppercase",transition:"all 0.15s" });
+
+// ── Primitives ─────────────────────────────────────────────────────────────────
+const Scanlines = () => (
+  <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:9999,
+    background:"repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.022) 2px,rgba(0,0,0,0.022) 4px)"}}/>
+);
+
+function GlitchText({text,style={}}){
+  const [d,setD]=useState(text);
+  const go=()=>{
+    const ch="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+    let i=0;
+    const iv=setInterval(()=>{
+      setD(text.split("").map((c,x)=>x<i?c:ch[Math.floor(Math.random()*ch.length)]).join(""));
+      i++;if(i>text.length){clearInterval(iv);setD(text);}
+    },32);
+  };
+  return <span style={{fontFamily:"'Courier New',monospace",cursor:"default",...style}} onMouseEnter={go}>{d}</span>;
+}
+
+function Typewriter({text,speed=26,onDone}){
+  const [d,setD]=useState("");
+  useEffect(()=>{
+    let i=0;setD("");
+    const iv=setInterval(()=>{setD(text.slice(0,i+1));i++;if(i>=text.length){clearInterval(iv);onDone&&onDone();}},speed);
+    return()=>clearInterval(iv);
+  },[text]);
+  return <span>{d}<span style={{color:"#00ff88",animation:"blink 1s step-end infinite"}}>_</span></span>;
+}
+
+const Badge=({label,color})=>(
+  <span style={{background:color+"18",border:"1px solid "+color+"55",color,fontSize:9,fontFamily:"'Courier New',monospace",
+    padding:"2px 8px",letterSpacing:2,textTransform:"uppercase",fontWeight:700,whiteSpace:"nowrap"}}>{label}</span>
+);
+const Dot=({color,size=7})=>(
+  <span style={{display:"inline-block",width:size,height:size,borderRadius:"50%",background:color,
+    boxShadow:"0 0 5px "+color,animation:"pulse 2s ease-in-out infinite",marginRight:6,flexShrink:0}}/>
+);
+const Divider=({my=18})=><div style={{height:1,background:"#0e1a22",margin:my+"px 0",opacity:0.7}}/>;
+
+function ClearancePill({level}){
+  const m=RANK_META[level]||RANK_META[1];
+  return(
+    <span style={{display:"inline-flex",alignItems:"center",gap:6,background:m.color+"10",border:"1px solid "+m.color+"44",
+      padding:"3px 10px",fontFamily:"'Courier New',monospace",fontSize:10,color:m.color,letterSpacing:1,whiteSpace:"nowrap"}}>
+      <Dot color={m.color} size={6}/>CL-{level} — {m.label}
+    </span>
+  );
+}
+
+const DocStamp=({text,color="#8b1a1a"})=>(
+  <span style={{display:"inline-block",border:"2px solid "+color,padding:"3px 12px",transform:"rotate(-1.5deg)",
+    color,fontFamily:"'Courier New',monospace",fontSize:10,fontWeight:900,letterSpacing:4,opacity:0.75,textTransform:"uppercase"}}>{text}</span>
+);
+
+function Redacted({text}){
+  const[r,setR]=useState(false);
+  return(
+    <span onClick={()=>setR(!r)} style={{cursor:"pointer",background:r?"transparent":"#0a0a0a",color:r?"#c8d6e5":"#0a0a0a",
+      border:r?"none":"1px solid #3a0a0a",padding:"0 4px",fontFamily:"'Courier New',monospace",userSelect:"none"}}>{r?text:"[REDACTED]"}</span>
+  );
+}
+
+function Modal({title,body,onConfirm,onCancel}){
+  return(
+    <div style={{position:"fixed",inset:0,background:"#000000dd",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#060a0b",border:"1px solid #8b1a1a",padding:32,fontFamily:"'Courier New',monospace",maxWidth:420,width:"100%"}}>
+        <div style={{color:"#8b1a1a",fontSize:11,letterSpacing:3,marginBottom:10}}>{title}</div>
+        <div style={{color:"#3a5a6a",fontSize:12,lineHeight:1.7,marginBottom:22}}>{body}</div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={onConfirm} style={{...btn("#8b1a1a"),flex:1,padding:10}}>CONFIRM</button>
+          <button onClick={onCancel}  style={{...btn("#3a5a6a"),flex:1,padding:10}}>CANCEL</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Navbar ────────────────────────────────────────────────────────────────────
+function Navbar({page,setPage,session,onLogout}){
+  const [open,setOpen]=useState(false);
+  const m=session?RANK_META[session.level]||RANK_META[1]:null;
+  const go=p=>{setPage(p);setOpen(false);};
+  return(
+    <nav style={{position:"fixed",top:0,left:0,right:0,zIndex:1000,background:"rgba(4,6,8,0.97)",borderBottom:"1px solid #0e1422",backdropFilter:"blur(12px)"}}>
+      <div style={{maxWidth:1280,margin:"0 auto",padding:"0 16px",display:"flex",alignItems:"center",height:54,justifyContent:"space-between",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",flexShrink:0}} onClick={()=>go("Home")}>
+          <div style={{width:30,height:30,border:"1px solid #00ff8855",display:"flex",alignItems:"center",justifyContent:"center",background:"#00ff8808"}}>
+            <span style={{color:"#00ff88",fontSize:9,fontWeight:900,fontFamily:"'Courier New',monospace"}}>DAV</span>
+          </div>
+          <div>
+            <div style={{color:"#c8d6e5",fontSize:11,fontWeight:700,letterSpacing:4,fontFamily:"'Courier New',monospace",lineHeight:1}}>D.A.V.</div>
+            <div style={{color:"#1a3a2a",fontSize:7,letterSpacing:2,fontFamily:"'Courier New',monospace"}}>CLASSIFIED DATABASE</div>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+          {session&&(
+            <div onClick={()=>go("Portal")} style={{cursor:"pointer",border:"1px solid "+m.color+"33",padding:"4px 8px",
+              fontFamily:"'Courier New',monospace",fontSize:9,color:m.color,background:m.color+"06",display:"flex",alignItems:"center",gap:4}}>
+              <Dot color={m.color} size={5}/>{"CL-"+session.level}
+            </div>
+          )}
+          <button onClick={()=>setOpen(o=>!o)} style={{background:"transparent",border:"1px solid #1a3a2a",color:"#3a5a6a",
+            padding:"6px 12px",cursor:"pointer",fontFamily:"'Courier New',monospace",fontSize:14,lineHeight:1}}>
+            {open?"✕":"≡"}
+          </button>
+        </div>
+      </div>
+      {open&&(
+        <div style={{background:"#040608",borderTop:"1px solid #0e1422",padding:"12px 16px",display:"flex",flexDirection:"column",gap:2}}>
+          {NAV_LINKS.map(n=>(
+            <button key={n} onClick={()=>go(n)} style={{background:page===n?"#00ff8808":"transparent",border:"none",
+              borderLeft:page===n?"2px solid #00ff88":"2px solid transparent",
+              color:page===n?"#00ff88":"#3a5a6a",fontSize:11,letterSpacing:2,padding:"10px 12px",
+              cursor:"pointer",fontFamily:"'Courier New',monospace",textTransform:"uppercase",textAlign:"left"}}>{n}</button>
+          ))}
+          <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+            <a href={DISCORD} target="_blank" rel="noreferrer" style={{...btn("#5865F2"),padding:"8px 14px",fontSize:10,textDecoration:"none"}}>DISCORD</a>
+            <a href={GAME}    target="_blank" rel="noreferrer" style={{...btn("#c47a1e"),padding:"8px 14px",fontSize:10,textDecoration:"none"}}>PLAY ROBLOX</a>
+          </div>
+          <div style={{marginTop:8,borderTop:"1px solid #0e1422",paddingTop:8}}>
+            {session?(
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <ClearancePill level={session.level}/>
+                <button onClick={()=>go("Portal")}  style={{...btn(m.color),padding:"6px 12px",fontSize:9}}>MY PORTAL</button>
+                <button onClick={()=>{onLogout();setOpen(false);}} style={{...btn("#8b1a1a"),padding:"6px 12px",fontSize:9}}>LOGOUT</button>
+              </div>
+            ):(
+              <button onClick={()=>go("Login")} style={{...btn("#00ff88"),padding:"8px 16px",fontSize:10}}>PERSONNEL LOGIN</button>
+            )}
+          </div>
+        </div>
+      )}
+    </nav>
+  );
+}
+
+function Footer({setPage}){
+  return(
+    <footer style={{background:"#030508",borderTop:"1px solid #0e1422",padding:"32px 24px"}}>
+      <div style={{maxWidth:1280,margin:"0 auto"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:24,marginBottom:20}}>
+          <div>
+            <div style={{color:"#c8d6e5",fontFamily:"'Courier New',monospace",fontSize:11,fontWeight:700,letterSpacing:4,marginBottom:10}}>D.A.V.</div>
+            <div style={{color:"#1a3a2a",fontFamily:"'Courier New',monospace",fontSize:9,lineHeight:2}}>Dawnbound Achivum Vanguard<br/>Independent Research Division</div>
+          </div>
+          <div>
+            <div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,marginBottom:10}}>NAVIGATION</div>
+            {NAV_LINKS.map(n=><div key={n} onClick={()=>setPage(n)} style={{color:"#2a4a5a",fontFamily:"'Courier New',monospace",fontSize:10,marginBottom:4,cursor:"pointer"}}>{n}</div>)}
+          </div>
+          <div>
+            <div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,marginBottom:10}}>EXTERNAL</div>
+            <a href={DISCORD} target="_blank" rel="noreferrer" style={{display:"block",color:"#5865F2",fontFamily:"'Courier New',monospace",fontSize:10,marginBottom:6,textDecoration:"none"}}>DISCORD SERVER</a>
+            <a href={GAME}    target="_blank" rel="noreferrer" style={{display:"block",color:"#c47a1e",fontFamily:"'Courier New',monospace",fontSize:10,textDecoration:"none"}}>PLAY ON ROBLOX</a>
+          </div>
+        </div>
+        <Divider my={12}/>
+        <div style={{textAlign:"center",fontFamily:"'Courier New',monospace",color:"#0e1a22",fontSize:9,letterSpacing:2}}>
+          DAWNBOUND ACHIVUM VANGUARD — ALL DATA PROTECTED UNDER DIRECTIVE 7-ALPHA
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function PageWrap({children}){return <div style={{maxWidth:1280,margin:"0 auto",padding:"80px 24px 60px",minHeight:"100vh"}}>{children}</div>;}
+
+function SecHeader({tag,title,sub,clearance}){
+  const m=clearance?RANK_META[clearance]:null;
+  return(
+    <div style={{marginBottom:28,paddingBottom:18,borderBottom:"1px solid #0e1a22"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{color:"#1a3a2a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:4,marginBottom:6}}>D.A.V. // {tag}</div>
+          <h2 style={{color:"#c8d6e5",fontSize:20,fontWeight:900,letterSpacing:3,margin:0,textTransform:"uppercase",fontFamily:"'Courier New',monospace"}}>{title}</h2>
+          {sub&&<p style={{color:"#2a4a5a",fontFamily:"'Courier New',monospace",fontSize:10,marginTop:6,letterSpacing:1}}>{sub}</p>}
+        </div>
+        {m&&<div style={{textAlign:"right",fontFamily:"'Courier New',monospace",flexShrink:0}}>
+          <div style={{color:"#1a3a2a",fontSize:8,letterSpacing:3}}>REQUIRED ACCESS</div>
+          <div style={{color:m.color,fontSize:12,fontWeight:900,letterSpacing:2,border:"1px solid "+m.color+"33",padding:"3px 10px",marginTop:2}}>
+            CL-{clearance} — {m.label.toUpperCase()}
+          </div>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+function AnnouncementBanner({announcements}){
+  const pub=announcements.filter(a=>a.published);
+  if(!pub.length)return null;
+  const a=pub.find(x=>x.priority==="Critical")||pub.find(x=>x.priority==="High")||pub[0];
+  const c=prioColor(a.priority);
+  return(
+    <div style={{background:c+"0c",borderBottom:"1px solid "+c+"33",padding:"6px 16px",display:"flex",alignItems:"center",gap:8,fontFamily:"'Courier New',monospace",fontSize:10,flexWrap:"wrap"}}>
+      <Badge label={a.priority} color={c}/>
+      <span style={{color:"#8aabb0",fontWeight:700}}>{a.title}</span>
+      <span style={{color:"#2a4a5a",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>— {a.content.slice(0,100)}{a.content.length>100?"...":""}</span>
+    </div>
+  );
+}
+
+// ── LOGIN (Firebase Auth) ─────────────────────────────────────────────────────
+function LoginPage({onLogin}){
+  const [email,setEmail]=useState("");
+  const [pass,setPass]=useState("");
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [phase,setPhase]=useState(0);
+  const boot=["INITIALIZING D.A.V. PERSONNEL AUTHENTICATION SYSTEM...","SECURE CHANNEL ESTABLISHED...","AWAITING CREDENTIALS..."];
+  useEffect(()=>{if(phase<boot.length-1){const t=setTimeout(()=>setPhase(p=>p+1),800);return()=>clearTimeout(t);}},[phase]);
+
+  const tryLogin=async()=>{
+    if(!email.trim()||!pass.trim())return;
+    setLoading(true);setErr("");
+    try{
+      const cred=await signInWithEmailAndPassword(auth,email.trim(),pass.trim());
+      // fetch user profile from Firestore
+      const snap=await getDoc(doc(db,"users",cred.user.uid));
+      if(snap.exists()){
+        onLogin({uid:cred.user.uid,email:cred.user.email,...snap.data()});
+      } else {
+        // default recruit if no profile yet
+        onLogin({uid:cred.user.uid,email:cred.user.email,username:cred.user.email,level:1,rank:"Recruit"});
+      }
+    } catch(e){
+      setErr(e.code==="auth/invalid-credential"||e.code==="auth/wrong-password"||e.code==="auth/user-not-found"
+        ?"ACCESS DENIED — INVALID CREDENTIALS"
+        :"SYSTEM ERROR — "+e.message);
+    }
+    setLoading(false);
+  };
+
+  return(
+    <PageWrap>
+      <div style={{maxWidth:480,margin:"40px auto"}}>
+        <div style={{...CARD,border:"1px solid #0e1a22"}}>
+          <div style={{borderBottom:"1px solid #0a1218",paddingBottom:14,marginBottom:20}}>
+            <div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:4,marginBottom:3}}>DAWNBOUND ACHIVUM VANGUARD</div>
+            <div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:4,marginBottom:12}}>PERSONNEL AUTHENTICATION TERMINAL</div>
+            {boot.slice(0,phase+1).map((l,i)=>(
+              <div key={i} style={{color:i===phase?"#2a6b3c":"#1a3a2a",fontSize:10,lineHeight:2,fontFamily:"'Courier New',monospace"}}>
+                {i===phase?<Typewriter text={"> "+l} speed={18}/>:"> "+l}
+              </div>
+            ))}
+          </div>
+          <div style={{marginBottom:12}}>
+            <label style={LBL}>Email Address</label>
+            <input style={INP} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="operative@dav.com" onKeyDown={e=>e.key==="Enter"&&tryLogin()} disabled={loading}/>
+          </div>
+          <div style={{marginBottom:16}}>
+            <label style={LBL}>Access Code</label>
+            <input style={INP} type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&tryLogin()} disabled={loading}/>
+          </div>
+          {err&&<div style={{background:"#0a0405",border:"1px solid #1a0808",padding:"8px 12px",color:"#8b1a1a",fontSize:10,letterSpacing:2,marginBottom:12,fontFamily:"'Courier New',monospace"}}>SYSTEM: {err}</div>}
+          <button onClick={tryLogin} disabled={loading} style={{...btn("#00ff88"),width:"100%",padding:11,fontSize:11,letterSpacing:3,cursor:loading?"wait":"pointer"}}>
+            {loading?"AUTHENTICATING...":"AUTHENTICATE"}
+          </button>
+          <Divider my={14}/>
+          <div style={{color:"#1a2a3a",fontSize:9,letterSpacing:1,fontFamily:"'Courier New',monospace",lineHeight:1.7}}>
+            Access is granted by your Division Director.<br/>Contact command if you have not received credentials.
+          </div>
+        </div>
+      </div>
+    </PageWrap>
+  );
+}
+
+// ── PORTAL ────────────────────────────────────────────────────────────────────
+function PersonnelPortal({session,setPage,events,announcements}){
+  const m=RANK_META[session.level]||RANK_META[1];
+  const pubAnns=announcements.filter(a=>a.published);
+  const upcoming=events.filter(e=>e.published&&(e.status==="Upcoming"||e.status==="Ongoing"));
+  const accessTier=session.level>=5?"FULL ADMINISTRATION":session.level>=3?"FIELD OPERATIONS":"READ-ONLY ACCESS";
+  return(
+    <PageWrap>
+      <div style={{...CARD,marginBottom:20,border:"1px solid "+m.color+"33"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
+          <div>
+            <div style={{color:"#1a3a2a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:4,marginBottom:6}}>AUTHENTICATED SESSION</div>
+            <div style={{color:"#c8d6e5",fontSize:16,fontWeight:900,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:10}}>{session.username||session.email}</div>
+            <ClearancePill level={session.level}/>
+          </div>
+          <div style={{textAlign:"right",fontFamily:"'Courier New',monospace"}}>
+            <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,marginBottom:4}}>ACCESS TIER</div>
+            <div style={{color:m.color,fontSize:11,fontWeight:900,letterSpacing:2,border:"1px solid "+m.color+"33",padding:"4px 10px"}}>{accessTier}</div>
+          </div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+        {[["CLEARANCE","CL-"+session.level,m.color],["RANK",m.label.toUpperCase(),m.color],["ACTIVE OPS",String(upcoming.length),"#00ff88"],["BROADCASTS",String(pubAnns.length),"#c47a1e"]].map(([l,v,c])=>(
+          <div key={l} style={{...CARD,textAlign:"center"}}>
+            <div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:2,marginBottom:6}}>{l}</div>
+            <div style={{color:c,fontFamily:"'Courier New',monospace",fontSize:14,fontWeight:900}}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,marginBottom:20}}>
+        <div style={CARD}>
+          <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:12}}>PUBLIC ACCESS</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {[["VIEW EVENTS","Events"],["THREAT DATABASE","Enemies"],["LORE ARCHIVE","Lore"],["FACTIONS","Factions"],["SERVER RULES","Rules"]].map(([l,p])=>(
+              <button key={l} onClick={()=>setPage(p)} style={{...btn("#3a5a6a"),textAlign:"left",padding:"8px 12px"}}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {canLog(session.level)&&!canManage(session.level)&&(
+          <div style={{...CARD,border:"1px solid #00ff8818"}}>
+            <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:8}}>FIELD FUNCTIONS</div>
+            <div style={{marginBottom:12}}><ClearancePill level={3}/></div>
+            <button onClick={()=>setPage("OpLog")} style={{...btn("#00ff88"),width:"100%",padding:"9px 12px",textAlign:"left"}}>OPERATION LOG — ADD ENTRIES</button>
+          </div>
+        )}
+        {canManage(session.level)&&(
+          <div style={{...CARD,border:"1px solid "+m.color+"22"}}>
+            <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:8}}>ADMINISTRATION</div>
+            <div style={{marginBottom:12}}><ClearancePill level={session.level}/></div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <button onClick={()=>setPage("EventManager")} style={{...btn("#00ff88"),textAlign:"left",padding:"8px 12px"}}>MANAGE EVENTS</button>
+              <button onClick={()=>setPage("AnnManager")}   style={{...btn("#c47a1e"),textAlign:"left",padding:"8px 12px"}}>MANAGE ANNOUNCEMENTS</button>
+              <button onClick={()=>setPage("OpLog")}        style={{...btn("#8aaabb"),textAlign:"left",padding:"8px 12px"}}>OPERATION LOG</button>
+              <button onClick={()=>setPage("UserManager")}  style={{...btn("#3a5a6a"),textAlign:"left",padding:"8px 12px"}}>USER MANAGER</button>
+            </div>
+          </div>
+        )}
+      </div>
+      <div style={{color:"#1a3a2a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:4,marginBottom:12}}>LATEST BROADCASTS</div>
+      {pubAnns.slice(0,3).map(a=>(
+        <div key={a.id} style={{...CARD,marginBottom:10,borderLeft:"2px solid "+prioColor(a.priority)}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:6,flexWrap:"wrap"}}>
+            <Badge label={a.priority} color={prioColor(a.priority)}/>
+            <span style={{color:"#b0c4d4",fontFamily:"'Courier New',monospace",fontSize:11,fontWeight:700}}>{a.title}</span>
+          </div>
+          <div style={{color:"#3a5a6a",fontSize:11,lineHeight:1.7,fontFamily:"'Courier New',monospace"}}>{a.content}</div>
+        </div>
+      ))}
+    </PageWrap>
+  );
+}
+
+// ── EVENT MANAGER ─────────────────────────────────────────────────────────────
+function EventManager({session}){
+  const [events,setEvents]=useState([]);
+  const [form,setForm]=useState({title:"",date:"",time:"",type:"Training",status:"Upcoming",desc:"",host:"",published:false});
+  const [edit,setEdit]=useState(null);
+  const [modal,setModal]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const blank={title:"",date:"",time:"",type:"Training",status:"Upcoming",desc:"",host:"",published:false};
+
+  useEffect(()=>{
+    const q=query(collection(db,"events"),orderBy("createdAt","desc"));
+    return onSnapshot(q,snap=>setEvents(snap.docs.map(d=>({id:d.id,...d.data()}))));
+  },[]);
+
+  const save=async()=>{
+    if(!form.title.trim()||!form.date)return;
+    setSaving(true);
+    try{
+      if(edit){await updateDoc(doc(db,"events",edit),{...form,updatedAt:serverTimestamp()});setEdit(null);}
+      else{await addDoc(collection(db,"events"),{...form,log:[],createdAt:serverTimestamp()});}
+      setForm(blank);
+    }catch(e){alert("Error: "+e.message);}
+    setSaving(false);
+  };
+  const togglePub=async(id,cur)=>{await updateDoc(doc(db,"events",id),{published:!cur});};
+  const del=id=>setModal(id);
+
+  return(
+    <PageWrap>
+      {modal&&<Modal title="CONFIRM DELETION" body="This action is permanent and cannot be undone." onConfirm={async()=>{await deleteDoc(doc(db,"events",modal));setModal(null);}} onCancel={()=>setModal(null)}/>}
+      <SecHeader tag="Admin — Events" title="EVENT MANAGER" sub="// Firestore-backed — changes are live for all users instantly" clearance={5}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:20}}>
+        <div style={CARD}>
+          <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:14}}>{edit?"// EDIT OPERATION":"// CREATE OPERATION"}</div>
+          {[["Title","title","text","Operation title..."],["Date","date","date",""],["Time (UTC)","time","time",""],["Host","host","text","Hosted by..."]].map(([l,k,t,ph])=>(
+            <div key={k} style={{marginBottom:10}}><label style={LBL}>{l}</label>
+              <input style={INP} type={t} value={form[k]} placeholder={ph} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}/>
+            </div>
+          ))}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+            <div><label style={LBL}>Type</label>
+              <select style={INP} value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}>
+                {["Training","Official","Research","Emergency"].map(o=><option key={o}>{o}</option>)}
+              </select>
+            </div>
+            <div><label style={LBL}>Status</label>
+              <select style={INP} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
+                {["Upcoming","Ongoing","Completed","Cancelled"].map(o=><option key={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{marginBottom:10}}><label style={LBL}>Brief</label>
+            <textarea style={{...INP,minHeight:80,resize:"vertical"}} value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))} placeholder="Operation description..."/>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+            <input type="checkbox" id="epub" checked={form.published} onChange={e=>setForm(f=>({...f,published:e.target.checked}))} style={{accentColor:"#00ff88",width:14,height:14}}/>
+            <label htmlFor="epub" style={{...LBL,marginBottom:0,color:"#2a6b3c",cursor:"pointer"}}>PUBLISH IMMEDIATELY</label>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={save} disabled={saving} style={{...btn("#00ff88"),flex:1,padding:9}}>{saving?"SAVING...":(edit?"UPDATE":"CREATE")}</button>
+            {edit&&<button onClick={()=>{setEdit(null);setForm(blank);}} style={{...btn("#3a5a6a"),padding:9}}>CANCEL</button>}
+          </div>
+        </div>
+        <div>
+          <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:12}}>// ALL OPERATIONS ({events.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:580,overflowY:"auto"}}>
+            {events.map(ev=>(
+              <div key={ev.id} style={{...CARD,borderLeft:"2px solid "+(ev.published?"#00ff88":"#1a3a4a")}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:6}}>
+                  <div style={{color:"#b0c4d4",fontWeight:700,fontSize:11,fontFamily:"'Courier New',monospace",flex:1}}>{ev.title}</div>
+                  <Badge label={ev.published?"LIVE":"DRAFT"} color={ev.published?"#00ff88":"#1a3a4a"}/>
+                </div>
+                <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                  <Badge label={ev.type||""} color={evTypeColor(ev.type)}/>
+                  <Badge label={ev.status||""} color={evStatColor(ev.status)}/>
+                  <span style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",fontSize:8,alignSelf:"center"}}>{ev.date}</span>
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  <button onClick={()=>togglePub(ev.id,ev.published)} style={{...btn(ev.published?"#8b1a1a":"#00ff88"),padding:"4px 10px",fontSize:9}}>{ev.published?"UNPUBLISH":"PUBLISH"}</button>
+                  <button onClick={()=>{setEdit(ev.id);setForm({title:ev.title,date:ev.date,time:ev.time||"",type:ev.type||"Training",status:ev.status||"Upcoming",desc:ev.desc||"",host:ev.host||"",published:ev.published||false});}} style={{...btn("#3a5a6a"),padding:"4px 10px",fontSize:9}}>EDIT</button>
+                  <button onClick={()=>del(ev.id)} style={{...btn("#8b1a1a"),padding:"4px 10px",fontSize:9}}>DELETE</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </PageWrap>
+  );
+}
+
+// ── ANNOUNCEMENT MANAGER ──────────────────────────────────────────────────────
+function AnnManager(){
+  const [anns,setAnns]=useState([]);
+  const [form,setForm]=useState({title:"",content:"",priority:"Normal",published:false});
+  const [edit,setEdit]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const blank={title:"",content:"",priority:"Normal",published:false};
+
+  useEffect(()=>{
+    const q=query(collection(db,"announcements"),orderBy("createdAt","desc"));
+    return onSnapshot(q,snap=>setAnns(snap.docs.map(d=>({id:d.id,...d.data()}))));
+  },[]);
+
+  const save=async()=>{
+    if(!form.title.trim()||!form.content.trim())return;
+    setSaving(true);
+    try{
+      const today=new Date().toISOString().split("T")[0];
+      if(edit){await updateDoc(doc(db,"announcements",edit),{...form,date:today,updatedAt:serverTimestamp()});setEdit(null);}
+      else{await addDoc(collection(db,"announcements"),{...form,date:today,createdAt:serverTimestamp()});}
+      setForm(blank);
+    }catch(e){alert("Error: "+e.message);}
+    setSaving(false);
+  };
+  const togglePub=async(id,cur)=>{await updateDoc(doc(db,"announcements",id),{published:!cur});};
+  const del=async id=>{await deleteDoc(doc(db,"announcements",id));};
+
+  return(
+    <PageWrap>
+      <SecHeader tag="Admin — Announcements" title="ANNOUNCEMENT MANAGER" sub="// Published announcements appear instantly for all users" clearance={5}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:20}}>
+        <div style={CARD}>
+          <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:14}}>{edit?"// EDIT":"// COMPOSE"}</div>
+          <div style={{marginBottom:10}}><label style={LBL}>Title</label><input style={INP} value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Announcement title..."/></div>
+          <div style={{marginBottom:10}}><label style={LBL}>Content</label><textarea style={{...INP,minHeight:100,resize:"vertical"}} value={form.content} onChange={e=>setForm(f=>({...f,content:e.target.value}))} placeholder="Announcement body..."/></div>
+          <div style={{marginBottom:10}}><label style={LBL}>Priority</label>
+            <select style={INP} value={form.priority} onChange={e=>setForm(f=>({...f,priority:e.target.value}))}>
+              {["Normal","High","Critical"].map(o=><option key={o}>{o}</option>)}
+            </select>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+            <input type="checkbox" id="apub" checked={form.published} onChange={e=>setForm(f=>({...f,published:e.target.checked}))} style={{accentColor:"#00ff88",width:14,height:14}}/>
+            <label htmlFor="apub" style={{...LBL,marginBottom:0,color:"#2a6b3c",cursor:"pointer"}}>PUBLISH IMMEDIATELY</label>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={save} disabled={saving} style={{...btn("#00ff88"),flex:1,padding:9}}>{saving?"SAVING...":(edit?"UPDATE":"PUBLISH")}</button>
+            {edit&&<button onClick={()=>{setEdit(null);setForm(blank);}} style={{...btn("#3a5a6a"),padding:9}}>CANCEL</button>}
+          </div>
+        </div>
+        <div>
+          <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:12}}>// ALL BROADCASTS ({anns.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:580,overflowY:"auto"}}>
+            {anns.map(a=>(
+              <div key={a.id} style={{...CARD,borderLeft:"2px solid "+(a.published?prioColor(a.priority):"#1a3a4a")}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:6,marginBottom:6,flexWrap:"wrap"}}>
+                  <span style={{color:"#b0c4d4",fontWeight:700,fontSize:11,fontFamily:"'Courier New',monospace"}}>{a.title}</span>
+                  <div style={{display:"flex",gap:4}}><Badge label={a.priority} color={prioColor(a.priority)}/><Badge label={a.published?"LIVE":"DRAFT"} color={a.published?"#00ff88":"#1a3a4a"}/></div>
+                </div>
+                <div style={{color:"#2a4a5a",fontSize:11,lineHeight:1.6,fontFamily:"'Courier New',monospace",marginBottom:8}}>{a.content.slice(0,80)}{a.content.length>80?"...":""}</div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>togglePub(a.id,a.published)} style={{...btn(a.published?"#8b1a1a":"#00ff88"),padding:"4px 10px",fontSize:9}}>{a.published?"RETRACT":"PUBLISH"}</button>
+                  <button onClick={()=>{setEdit(a.id);setForm({title:a.title,content:a.content,priority:a.priority,published:a.published});}} style={{...btn("#3a5a6a"),padding:"4px 10px",fontSize:9}}>EDIT</button>
+                  <button onClick={()=>del(a.id)} style={{...btn("#8b1a1a"),padding:"4px 10px",fontSize:9}}>DELETE</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </PageWrap>
+  );
+}
+
+// ── USER MANAGER (CL-5+) ──────────────────────────────────────────────────────
+function UserManager(){
+  const [users,setUsers]=useState([]);
+  const [form,setForm]=useState({email:"",password:"",username:"",level:1});
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState("");
+
+  useEffect(()=>{
+    return onSnapshot(collection(db,"users"),snap=>setUsers(snap.docs.map(d=>({id:d.id,...d.data()}))));
+  },[]);
+
+  const createUser=async()=>{
+    if(!form.email.trim()||!form.password.trim()||!form.username.trim())return;
+    setSaving(true);setMsg("");
+    try{
+      // Create auth account via Firebase REST (client-side signup)
+      const res=await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=AIzaSyDdJPsAPlW8ugiLfDfYg-M9gTdMfk8k0RE",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({email:form.email,password:form.password,returnSecureToken:true})
+      });
+      const data=await res.json();
+      if(data.error){setMsg("ERROR: "+data.error.message);setSaving(false);return;}
+      // Save profile to Firestore
+      await updateDoc(doc(db,"users",data.localId),{
+        email:form.email,username:form.username,level:Number(form.level),
+        rank:RANK_META[Number(form.level)]?.label||"Recruit",createdAt:serverTimestamp()
+      }).catch(async()=>{
+        // doc may not exist yet, use set via addDoc workaround
+        const {setDoc}=await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+        await setDoc(doc(db,"users",data.localId),{
+          email:form.email,username:form.username,level:Number(form.level),
+          rank:RANK_META[Number(form.level)]?.label||"Recruit",createdAt:serverTimestamp()
+        });
+      });
+      setMsg("USER CREATED: "+form.username+" // CL-"+form.level);
+      setForm({email:"",password:"",username:"",level:1});
+    }catch(e){setMsg("ERROR: "+e.message);}
+    setSaving(false);
+  };
+
+  const updateLevel=async(uid,level)=>{
+    await updateDoc(doc(db,"users",uid),{level:Number(level),rank:RANK_META[Number(level)]?.label||"Recruit"});
+  };
+
+  return(
+    <PageWrap>
+      <SecHeader tag="Admin — Users" title="USER MANAGER" sub="// Create accounts and assign clearance levels — CL-5+" clearance={5}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:20}}>
+        <div style={CARD}>
+          <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:14}}>// CREATE NEW PERSONNEL ACCOUNT</div>
+          <div style={{marginBottom:10}}><label style={LBL}>Username / Callsign</label><input style={INP} value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} placeholder="e.g. OPERATIVE-007"/></div>
+          <div style={{marginBottom:10}}><label style={LBL}>Email Address</label><input style={INP} type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="operative@dav.com"/></div>
+          <div style={{marginBottom:10}}><label style={LBL}>Temporary Password</label><input style={INP} type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Min 6 characters"/></div>
+          <div style={{marginBottom:16}}><label style={LBL}>Clearance Level</label>
+            <select style={INP} value={form.level} onChange={e=>setForm(f=>({...f,level:e.target.value}))}>
+              {[1,2,3,4,5,6].map(l=><option key={l} value={l}>CL-{l} — {RANK_META[l].label}</option>)}
+            </select>
+          </div>
+          {msg&&<div style={{background:msg.startsWith("ERROR")?"#0a0405":"#040a05",border:"1px solid "+(msg.startsWith("ERROR")?"#8b1a1a":"#00ff88"),padding:"8px 12px",color:msg.startsWith("ERROR")?"#8b1a1a":"#00ff88",fontSize:10,marginBottom:12,fontFamily:"'Courier New',monospace"}}>{msg}</div>}
+          <button onClick={createUser} disabled={saving} style={{...btn("#00ff88"),width:"100%",padding:10}}>{saving?"CREATING ACCOUNT...":"CREATE ACCOUNT"}</button>
+        </div>
+        <div>
+          <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:12}}>// REGISTERED PERSONNEL ({users.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:580,overflowY:"auto"}}>
+            {users.map(u=>{
+              const m=RANK_META[u.level]||RANK_META[1];
+              return(
+                <div key={u.id} style={{...CARD,borderLeft:"2px solid "+m.color+"44"}}>
+                  <div style={{color:"#b0c4d4",fontWeight:700,fontSize:11,fontFamily:"'Courier New',monospace",marginBottom:4}}>{u.username||u.email}</div>
+                  <div style={{color:"#2a4a5a",fontSize:10,fontFamily:"'Courier New',monospace",marginBottom:8}}>{u.email}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <ClearancePill level={u.level||1}/>
+                    <select style={{...INP,width:"auto",padding:"4px 8px",fontSize:10}} value={u.level||1} onChange={e=>updateLevel(u.id,e.target.value)}>
+                      {[1,2,3,4,5,6].map(l=><option key={l} value={l}>CL-{l}</option>)}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+            {users.length===0&&<div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",fontSize:10,padding:20,textAlign:"center"}}>NO USERS IN DATABASE YET</div>}
+          </div>
+        </div>
+      </div>
+    </PageWrap>
+  );
+}
+
+// ── OPERATION LOG ─────────────────────────────────────────────────────────────
+function OpLog({session}){
+  const [events,setEvents]=useState([]);
+  const [logInput,setLogInput]=useState({});
+  const [filter,setFilter]=useState("All");
+
+  useEffect(()=>{
+    const q=query(collection(db,"events"),orderBy("createdAt","desc"));
+    return onSnapshot(q,snap=>setEvents(snap.docs.map(d=>({id:d.id,...d.data()}))));
+  },[]);
+
+  const addEntry=async id=>{
+    const entry=(logInput[id]||"").trim();
+    if(!entry)return;
+    const line="["+fmtTS()+"] ["+( session.username||session.email)+"] [CL-"+session.level+"] "+entry;
+    const ev=events.find(e=>e.id===id);
+    await updateDoc(doc(db,"events",id),{log:[...(ev?.log||[]),line]});
+    setLogInput(l=>({...l,[id]:""}));
+  };
+
+  const types=["All","Training","Official","Research","Emergency"];
+  const filtered=filter==="All"?events:events.filter(e=>e.type===filter);
+
+  return(
+    <PageWrap>
+      <SecHeader tag="Field — Operation Log" title="OPERATION LOG" sub="// Live from Firestore — CL-3+ can add entries" clearance={3}/>
+      <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
+        {types.map(t=><button key={t} onClick={()=>setFilter(t)} style={{...btn(filter===t?"#00ff88":"#3a5a6a"),padding:"5px 12px",fontSize:9}}>{t}</button>)}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {filtered.map(ev=>(
+          <div key={ev.id} style={CARD}>
+            <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:12}}>
+              <div>
+                <div style={{color:"#b0c4d4",fontWeight:700,fontFamily:"'Courier New',monospace",fontSize:12,marginBottom:4}}>{ev.title}</div>
+                <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:2,fontFamily:"'Courier New',monospace"}}>{ev.date} — {ev.host}</div>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <Badge label={ev.type||""} color={evTypeColor(ev.type)}/>
+                <Badge label={ev.status||""} color={evStatColor(ev.status)}/>
+              </div>
+            </div>
+            <Divider my={10}/>
+            <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:8}}>LOG ENTRIES ({(ev.log||[]).length})</div>
+            {(!ev.log||ev.log.length===0)&&<div style={{color:"#0e1a22",fontFamily:"'Courier New',monospace",fontSize:10,marginBottom:10}}>// NO ENTRIES</div>}
+            {(ev.log||[]).map((entry,i)=>(
+              <div key={i} style={{background:"#040709",border:"1px solid #0a1218",padding:"7px 12px",marginBottom:5,fontFamily:"'Courier New',monospace",fontSize:10,color:"#2a5a4a",lineHeight:1.6}}>{entry}</div>
+            ))}
+            {canLog(session.level)&&(
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <input style={{...INP,flex:1}} value={logInput[ev.id]||""} onChange={e=>setLogInput(l=>({...l,[ev.id]:e.target.value}))}
+                  placeholder="Add log entry..." onKeyDown={e=>e.key==="Enter"&&addEntry(ev.id)}/>
+                <button onClick={()=>addEntry(ev.id)} style={{...btn("#00ff88"),padding:"8px 12px",fontSize:9,whiteSpace:"nowrap"}}>ADD</button>
+              </div>
+            )}
+          </div>
+        ))}
+        {filtered.length===0&&<div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",textAlign:"center",padding:40}}>NO EVENTS FOUND</div>}
+      </div>
+    </PageWrap>
+  );
+}
+
+// ── PUBLIC EVENTS PAGE ────────────────────────────────────────────────────────
+function EventsPage(){
+  const [events,setEvents]=useState([]);
+  const [filter,setFilter]=useState("All");
+  useEffect(()=>{
+    const q=query(collection(db,"events"),orderBy("createdAt","desc"));
+    return onSnapshot(q,snap=>setEvents(snap.docs.map(d=>({id:d.id,...d.data()})).filter(e=>e.published)));
+  },[]);
+  const types=["All","Training","Official","Research","Emergency"];
+  const filtered=filter==="All"?events:events.filter(e=>e.type===filter);
+  return(
+    <PageWrap>
+      <SecHeader tag="Operations Board" title="ACTIVE EVENTS" sub="// Live — published events appear here instantly"/>
+      <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
+        {types.map(t=><button key={t} onClick={()=>setFilter(t)} style={{...btn(filter===t?"#00ff88":"#3a5a6a"),padding:"5px 12px",fontSize:9}}>{t}</button>)}
+      </div>
+      {filtered.length===0&&<div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",textAlign:"center",padding:40,letterSpacing:3}}>NO PUBLISHED EVENTS</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {filtered.map(ev=>(
+          <div key={ev.id} style={{...CARD,borderLeft:"2px solid "+evStatColor(ev.status)}}>
+            <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:10}}>
+              <div>
+                <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:3,fontFamily:"'Courier New',monospace",marginBottom:4}}>{fmtDate(ev.date)} — {ev.time} UTC</div>
+                <div style={{color:"#b0c4d4",fontWeight:700,fontSize:13,letterSpacing:2,textTransform:"uppercase",fontFamily:"'Courier New',monospace"}}>{ev.title}</div>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <Badge label={ev.type||""} color={evTypeColor(ev.type)}/>
+                <Badge label={ev.status||""} color={evStatColor(ev.status)}/>
+              </div>
+            </div>
+            <div style={{color:"#2a4a5a",fontSize:12,lineHeight:1.7,marginBottom:8,fontFamily:"'Courier New',monospace"}}>{ev.desc}</div>
+            <div style={{fontFamily:"'Courier New',monospace",fontSize:9,color:"#1a3a4a"}}>HOST: <span style={{color:"#3a5a6a"}}>{ev.host}</span></div>
+          </div>
+        ))}
+      </div>
+    </PageWrap>
+  );
+}
+
+// ── STATIC PUBLIC PAGES ───────────────────────────────────────────────────────
+function HomePage({setPage,session}){
+  const [phase,setPhase]=useState(0);const[done,setDone]=useState(false);
+  const [anns,setAnns]=useState([]);const[evs,setEvs]=useState([]);
+  useEffect(()=>{
+    const uq=query(collection(db,"announcements"),orderBy("createdAt","desc"));
+    const unsub1=onSnapshot(uq,s=>setAnns(s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>a.published)));
+    const eq=query(collection(db,"events"),orderBy("createdAt","desc"));
+    const unsub2=onSnapshot(eq,s=>setEvs(s.docs.map(d=>({id:d.id,...d.data()})).filter(e=>e.published&&(e.status==="Upcoming"||e.status==="Ongoing"))));
+    return()=>{unsub1();unsub2();};
+  },[]);
+  const lines=["ESTABLISHING SECURE CONNECTION TO DAV CENTRAL DATABASE...","VERIFYING TERMINAL INTEGRITY...","CROSS-REFERENCING OPERATOR CREDENTIALS...","CONNECTION ESTABLISHED. WELCOME, OPERATIVE."];
+  return(
+    <div>
+      <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"radial-gradient(ellipse at 50% 35%,#050d08 0%,#050709 55%,#030405 100%)",position:"relative",padding:"80px 20px 40px"}}>
+        <div style={{width:"100%",maxWidth:640,zIndex:1}}>
+          <div style={{border:"1px solid #0e1a14",background:"#050907cc",padding:"28px 28px",backdropFilter:"blur(6px)"}}>
+            <div style={{color:"#1a3a2a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,marginBottom:14,borderBottom:"1px solid #0a140e",paddingBottom:10}}>
+              TERMINAL ID: DAV-SEC-001 // {new Date().toISOString().replace("T"," ").slice(0,16)} UTC
+            </div>
+            <div style={{fontFamily:"'Courier New',monospace",fontSize:10,color:"#2a6b3c",marginBottom:18,minHeight:80,lineHeight:2.2}}>
+              {lines.slice(0,phase+1).map((l,i)=>(
+                <div key={i}>{i===phase&&!done?<Typewriter text={"> "+l} speed={20} onDone={()=>{if(i<lines.length-1)setTimeout(()=>setPhase(p=>p+1),350);else setDone(true);}}/>:<span style={{color:i===lines.length-1?"#00ff88":"#1a5a2a"}}>{"> "+l}</span>}</div>
+              ))}
+            </div>
+            <div style={{borderTop:"1px solid #0e1a14",paddingTop:18}}>
+              <div style={{color:"#c8d6e5",fontSize:15,fontWeight:900,letterSpacing:4,textTransform:"uppercase",fontFamily:"'Courier New',monospace",marginBottom:3}}>
+                <GlitchText text="DAWNBOUND ACHIVUM VANGUARD"/>
+              </div>
+              <div style={{color:"#1a4a3a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,marginBottom:18}}>INDEPENDENT RESEARCH AND CONTAINMENT DIVISION</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={()=>setPage("Lore")}    style={btn("#00ff88")}>ACCESS ARCHIVE</button>
+                <button onClick={()=>setPage("Enemies")} style={btn("#8b1a1a")}>THREAT INDEX</button>
+                <button onClick={()=>setPage("Events")}  style={btn("#c47a1e")}>ACTIVE OPS</button>
+                {!session&&<button onClick={()=>setPage("Login")} style={btn("#5a9a7a")}>LOGIN</button>}
+                <a href={DISCORD} target="_blank" rel="noreferrer" style={{...btn("#5865F2"),textDecoration:"none"}}>DISCORD</a>
+                <a href={GAME}    target="_blank" rel="noreferrer" style={{...btn("#c47a1e"),textDecoration:"none"}}>PLAY</a>
+              </div>
+            </div>
+          </div>
+          {anns.length>0&&(
+            <div style={{marginTop:8,border:"1px solid #2a1a0a",background:"#0a0604cc",padding:"10px 14px",fontFamily:"'Courier New',monospace"}}>
+              <div style={{color:"#3a2a1a",fontSize:8,letterSpacing:3,marginBottom:4}}>LATEST BROADCAST</div>
+              <div style={{color:"#c47a1e",fontSize:11,fontWeight:700,marginBottom:3}}>{anns[0].title}</div>
+              <div style={{color:"#5a4a3a",fontSize:10,lineHeight:1.6}}>{anns[0].content.slice(0,130)}...</div>
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{background:"#050709",borderTop:"1px solid #0e1422",borderBottom:"1px solid #0e1422",padding:"14px 20px"}}>
+        <div style={{maxWidth:1280,margin:"0 auto",display:"flex",justifyContent:"space-around",flexWrap:"wrap",gap:16}}>
+          {[["CONTAINMENT STATUS","ACTIVE","#c47a1e"],["HIVE THREAT LEVEL","TIER 6","#8b1a1a"],["UPCOMING OPS",String(evs.length),"#00ff88"],["DATABASE","ONLINE","#00ff88"]].map(([l,v,c])=>(
+            <div key={l} style={{textAlign:"center",fontFamily:"'Courier New',monospace"}}>
+              <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:2,marginBottom:4}}>{l}</div>
+              <div style={{color:c,fontSize:13,fontWeight:900,letterSpacing:2,display:"flex",alignItems:"center",justifyContent:"center"}}><Dot color={c}/>{v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{maxWidth:1280,margin:"0 auto",padding:"32px 20px"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:1,border:"1px solid #0e1422",background:"#0e1422",marginBottom:28}}>
+          {[["FOUNDATION ARCHIVE","Classified D.A.V. history.","Lore"],["THREAT DATABASE","HIVE enemy field documentation.","Enemies"],["ACTIVE OPERATIONS","Published field operations.","Events"],["FACTION DIRECTORY","D.A.V. and T.A.D. breakdown.","Factions"],["RANK HIERARCHY","Clearance level structure.","Ranks"],["SERVER REGULATIONS","Binding directives.","Rules"]].map(([t,d,pg])=>(
+            <div key={t} onClick={()=>setPage(pg)} style={{background:"#050709",padding:18,cursor:"pointer",transition:"background 0.2s"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#080d0f"}
+              onMouseLeave={e=>e.currentTarget.style.background="#050709"}>
+              <div style={{color:"#c8d6e5",fontWeight:700,fontSize:11,letterSpacing:2,marginBottom:6,textTransform:"uppercase",fontFamily:"'Courier New',monospace"}}>{t}</div>
+              <div style={{color:"#2a4a5a",fontSize:11,lineHeight:1.6}}>{d}</div>
+            </div>
+          ))}
+        </div>
+        {evs.length>0&&(
+          <>
+            <div style={{color:"#1a3a2a",fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:4,marginBottom:12}}>UPCOMING OPERATIONS</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
+              {evs.slice(0,3).map(ev=>(
+                <div key={ev.id} onClick={()=>setPage("Events")} style={{...CARD,borderLeft:"2px solid "+evStatColor(ev.status),cursor:"pointer"}}>
+                  <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                    <Badge label={ev.type||""} color={evTypeColor(ev.type)}/>
+                    <Badge label={ev.status||""} color={evStatColor(ev.status)}/>
+                  </div>
+                  <div style={{color:"#b0c4d4",fontFamily:"'Courier New',monospace",fontSize:11,fontWeight:700,marginBottom:4}}>{ev.title}</div>
+                  <div style={{color:"#1a3a4a",fontFamily:"'Courier New',monospace",fontSize:9}}>{fmtDate(ev.date)} — {ev.time} UTC</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LorePage(){
+  const evs=[
+    {date:<Redacted text="MAY 3 — YEAR CLASSIFIED"/>,title:"FOUNDATION ESTABLISHED",content:"Field operative Hiram Cavendish identifies anomalous activity during a forest survey. After thirty-one days of observation the group formally constitutes D.A.V.",lc:"#8b1a1a",classified:true},
+    {date:"EARLY OPERATIONAL PERIOD",title:"EXPANSION — PHASE I",content:"D.A.V. transitions from field camp to structured organization. Facilities constructed across multiple states, registered under corporate cover identities.",lc:"#c47a1e",classified:false},
+    {date:"APRIL 22 — DAY 0 +00:00",title:"PATIENT ZERO — HIVE EMERGENCE",content:"A pathogen of unknown origin appears in a civilian township. Within hours, civilian disappearances begin.",lc:"#c47a1e",classified:false},
+    {date:"APRIL 22 — DAY 0 +06:00",title:"FIRST REANIMATION EVENT",content:"A recovered missing subject reanimates during hospital transport. One fatality. Three injuries. Standard treatment yields no result.",lc:"#c47a1e",classified:false},
+    {date:"APRIL 23 — DAY 1",title:"OUTBREAK CONFIRMED",content:"Town containment fails. Evacuation begins — estimated 40% of evacuees carry latent infection.",lc:"#8b1a1a",classified:false},
+    {date:"APRIL 24 — DAY 2",title:"GOVERNMENT CONTAINMENT FAILS",content:"Military deployed. Infected exhibit evolved behavior: sprint mobility, ballistic-triggered gas emission. Military loses positional control.",lc:"#8b1a1a",classified:false},
+    {date:"APRIL 24 — DAY 2 +18:00",title:"D.A.V. EMERGENCY PROTOCOL ENACTED",content:"HIVE controls approximately 50% of city infrastructure. Full D.A.V. personnel extraction initiated.",lc:"#8b1a1a",classified:false},
+  ];
+  return(
+    <PageWrap>
+      <SecHeader tag="Lore Archive" title="FOUNDATION HISTORY" sub="// DAV-DOC-HIST-001 — Restricted Distribution" clearance={2}/>
+      <div style={{display:"flex",gap:8,marginBottom:24}}><DocStamp text="CLASSIFIED"/><DocStamp text="RESTRICTED" color="#c47a1e"/></div>
+      <div style={{position:"relative",paddingLeft:24}}>
+        <div style={{position:"absolute",left:5,top:0,bottom:0,width:1,background:"linear-gradient(to bottom,#1a4a2a,#8b1a1a)"}}/>
+        {evs.map((ev,i)=>(
+          <div key={i} style={{position:"relative",marginBottom:18}}>
+            <div style={{position:"absolute",left:-19,top:8,width:8,height:8,background:ev.lc,boxShadow:"0 0 5px "+ev.lc}}/>
+            <div style={{...CARD,border:"1px solid "+ev.lc+"18"}}>
+              <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                <div style={{fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:3,color:"#2a4a5a"}}>{ev.date}</div>
+                {ev.classified&&<Badge label="CLASSIFIED" color="#8b1a1a"/>}
+              </div>
+              <div style={{color:"#b0c4d4",fontWeight:700,fontSize:12,letterSpacing:2,textTransform:"uppercase",fontFamily:"'Courier New',monospace",marginBottom:8}}>{ev.title}</div>
+              <div style={{color:"#3a5a6a",fontSize:12,lineHeight:1.8,fontFamily:"'Courier New',monospace"}}>{ev.content}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </PageWrap>
+  );
+}
+
+function FactionsPage(){
+  const factions=[
+    {name:"DAWNBOUND ACHIVUM VANGUARD",short:"D.A.V.",color:"#00ff88",role:"Research and Containment Foundation",desc:"The founding body constituted by operative Hiram Cavendish. Concealed facilities across multiple states, registered under corporate cover.",goals:["Anomalous discovery and documentation","Containment of HIVE infection vectors","Personnel safety and extraction","Suppression of public awareness"],status:"Active — Full Operational Capacity"},
+    {name:"THE ACHIVUM DIRECTIVE",short:"T.A.D.",color:"#c47a1e",role:"Operational and Field Command Division",desc:"The field arm of D.A.V. responsible for direct threat engagement, personnel training, enemy documentation, and tactical deployment.",goals:["Direct engagement and threat neutralization","Enemy behavioral documentation","Personnel training and evaluation","Director-level strategic command"],status:"Active — Elevated Threat Posture"},
+  ];
+  return(
+    <PageWrap>
+      <SecHeader tag="Organizational Structure" title="FACTION DIRECTORY" sub="// DAV-DOC-ORG-004"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:18}}>
+        {factions.map(f=>(
+          <div key={f.name} style={{...CARD,border:"1px solid "+f.color+"18"}}>
+            <div style={{color:f.color,fontWeight:900,fontSize:13,letterSpacing:2,textTransform:"uppercase",fontFamily:"'Courier New',monospace",marginBottom:3}}>{f.name}</div>
+            <div style={{color:"#2a4a5a",fontFamily:"'Courier New',monospace",fontSize:9,letterSpacing:2,marginBottom:12}}>{f.role}</div>
+            <div style={{color:"#3a5a6a",fontSize:12,lineHeight:1.8,marginBottom:12}}>{f.desc}</div>
+            <Divider my={10}/>
+            {f.goals.map((g,i)=><div key={i} style={{color:"#3a5a6a",fontSize:11,marginBottom:4,fontFamily:"'Courier New',monospace"}}><span style={{color:f.color,marginRight:8}}>--</span>{g}</div>)}
+            <div style={{marginTop:12,display:"flex",alignItems:"center"}}><Dot color={f.color}/><span style={{color:"#2a4a5a",fontSize:10,fontFamily:"'Courier New',monospace"}}>{f.status}</span></div>
+          </div>
+        ))}
+      </div>
+    </PageWrap>
+  );
+}
+
+function EnemiesPage(){
+  const enemies=[
+    {id:"HIVE-001",name:"INFECTED RUNNER",alias:null,status:"Dangerous",tier:6,origin:"HIVE INFECTION — DEAD STATE (PHASE I)",desc:"Reanimated host. Zero cognitive function. Single directive: locate and overwhelm living targets. No sleep cycle. Documented corpse-mimicry.",vectors:["Bite transfer leading to death and reanimation","Infected zone gas exposure","Entry into infected zone with open wounds","Neck bite — immediate conversion"],tactics:["Withdraw from crowd engagement","No firearms in unconfirmed areas","Avoid red-marked zones"],weakness:"Standard termination effective on isolated subjects."},
+    {id:"HIVE-002",name:"MAD DOG",alias:"ALIVE VARIANT",status:"Dangerous",tier:5,origin:"HIVE INFECTION — ALIVE STATE (PHASE II)",desc:"Living subjects exposed to infected blood. Progressive psychological collapse over 72-96 hours. Retain human-level awareness.",vectors:["Infected blood injection — no bite required","Headache — hallucinations — destabilization — kill-state"],tactics:["Do not underestimate retained awareness","Separate group members before engagement"],weakness:"All standard weapons effective. No gas hazard."},
+  ];
+  const [exp,setExp]=useState(null);
+  return(
+    <PageWrap>
+      <SecHeader tag="Threat Database" title="ENEMY INDEX" sub="// DAV-DOC-THREAT-002" clearance={2}/>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {enemies.map(e=>(
+          <div key={e.id} style={{...CARD,border:"1px solid "+statColor(e.status)+"18"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,color:"#1a3a4a",marginBottom:4}}>ID: {e.id}</div>
+                <div style={{color:"#b0c4d4",fontWeight:900,fontSize:14,letterSpacing:2,textTransform:"uppercase",fontFamily:"'Courier New',monospace"}}>{e.name}</div>
+                {e.alias&&<div style={{color:statColor(e.status),fontFamily:"'Courier New',monospace",fontSize:9,marginTop:2}}>{e.alias}</div>}
+              </div>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                <div style={{textAlign:"right",fontFamily:"'Courier New',monospace"}}><div style={{color:"#1a3a4a",fontSize:7}}>TIER</div><div style={{color:tierColor(e.tier),fontSize:22,fontWeight:900,lineHeight:1}}>{e.tier}</div></div>
+                <Badge label={e.status} color={statColor(e.status)}/>
+                <button onClick={()=>setExp(exp===e.id?null:e.id)} style={{...btn(statColor(e.status)),padding:"5px 12px",fontSize:9}}>{exp===e.id?"COLLAPSE":"DOSSIER"}</button>
+              </div>
+            </div>
+            {exp===e.id&&(
+              <div><Divider my={12}/>
+                <div style={{color:statColor(e.status),fontFamily:"'Courier New',monospace",fontSize:9,marginBottom:10}}>{e.origin}</div>
+                <div style={{color:"#3a5a6a",fontSize:12,lineHeight:1.8,marginBottom:12}}>{e.desc}</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14}}>
+                  <div><div style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,color:"#1a3a4a",marginBottom:8}}>VECTORS</div>{e.vectors.map((v,i)=><div key={i} style={{color:"#3a5a6a",fontSize:11,marginBottom:4,fontFamily:"'Courier New',monospace"}}><span style={{color:"#8b1a1a",marginRight:6}}>X</span>{v}</div>)}</div>
+                  <div><div style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,color:"#1a3a4a",marginBottom:8}}>ADVISORIES</div>{e.tactics.map((t,i)=><div key={i} style={{color:"#3a5a6a",fontSize:11,marginBottom:4,fontFamily:"'Courier New',monospace"}}><span style={{color:"#c47a1e",marginRight:6}}>--</span>{t}</div>)}</div>
+                  <div><div style={{fontFamily:"'Courier New',monospace",fontSize:8,letterSpacing:3,color:"#1a3a4a",marginBottom:8}}>VULNERABILITIES</div><div style={{color:"#2a6b3c",fontSize:11,fontFamily:"'Courier New',monospace"}}>-- {e.weakness}</div></div>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </PageWrap>
+  );
+}
+
+function RanksPage(){
+  const ranks=[{level:6,desc:"Founding-level authority. Unrestricted database access. Emergency protocol authority."},{level:5,desc:"Commands a single department. Personnel deployment and research oversight."},{level:4,desc:"Veteran field personnel. Independent operation in Tier 4+ threat environments."},{level:3,desc:"Core T.A.D. field member. Leads small units. Direct threat engagement."},{level:2,desc:"Early-stage personnel. Supervised operations and research support."},{level:1,desc:"Initial intake. Training and evaluation. No unsupervised field access."}];
+  return(
+    <PageWrap>
+      <SecHeader tag="Personnel Structure" title="RANK HIERARCHY" sub="// DAV-DOC-RANK-005"/>
+      <div style={{display:"flex",flexDirection:"column",gap:1,border:"1px solid #0e1422",background:"#0e1422"}}>
+        {ranks.map(r=>{const m=RANK_META[r.level];return(
+          <div key={r.level} style={{background:"#060a0b",padding:"14px 18px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+            <div style={{width:30,height:30,border:"1px solid "+m.color+"44",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,background:m.color+"06"}}>
+              <span style={{color:m.color,fontFamily:"'Courier New',monospace",fontWeight:900,fontSize:11}}>{r.level}</span>
+            </div>
+            <div style={{flex:1,minWidth:180}}>
+              <div style={{marginBottom:5}}><ClearancePill level={r.level}/></div>
+              <div style={{color:"#2a4a5a",fontSize:12,lineHeight:1.6}}>{r.desc}</div>
+            </div>
+          </div>
+        );})}
+      </div>
+    </PageWrap>
+  );
+}
+
+function RulesPage(){
+  const sections=[{cat:"SECTION I — CONDUCT",items:["Maintain professional conduct regardless of rank.","Zero tolerance for discriminatory language or harassment.","All disputes escalated to Division Director level."]},{cat:"SECTION II — OPERATIONS",items:["Tier 5+ threat engagement requires Director authorization.","Firearm discharge in unconfirmed zones is a reportable offense.","Retreat mandatory when runner crowds exceed containment capacity.","Red-marked zones require written Director clearance."]},{cat:"SECTION III — CLASSIFICATION",items:["Sharing classified data results in immediate contract termination.","Enemy documentation stays internal unless Director-authorized.","All D.A.V. content is T.A.D. intellectual property."]},{cat:"SECTION IV — ROLEPLAY",items:["Maintain in-character conduct in all designated zones.","Power-gaming and meta-gaming are reportable offenses.","Character termination requires mutual agreement or Director sanction.","Recruits must complete intake training before active sector access."]}];
+  return(
+    <PageWrap>
+      <SecHeader tag="Regulations" title="SERVER RULES" sub="// DAV-DOC-REG-006 — Compliance mandatory"/>
+      <div style={{display:"flex",gap:8,marginBottom:20}}><DocStamp text="BINDING DIRECTIVE" color="#8b1a1a"/><DocStamp text="ALL PERSONNEL" color="#c47a1e"/></div>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {sections.map(s=>(
+          <div key={s.cat} style={CARD}>
+            <div style={{color:"#1a3a4a",fontSize:8,letterSpacing:4,fontFamily:"'Courier New',monospace",marginBottom:12}}>{s.cat}</div>
+            {s.items.map((item,i)=>(
+              <div key={i} style={{display:"flex",gap:12,marginBottom:9,alignItems:"flex-start"}}>
+                <span style={{color:"#c47a1e",fontFamily:"'Courier New',monospace",fontSize:10,flexShrink:0}}>{String(i+1).padStart(2,"0")}.</span>
+                <span style={{color:"#3a5a6a",fontSize:12,lineHeight:1.7,fontFamily:"'Courier New',monospace"}}>{item}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </PageWrap>
+  );
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+export default function App(){
+  const [page,setPage]=useState("Home");
+  const [session,setSession]=useState(null);
+  const [authLoading,setAuthLoading]=useState(true);
+  const [anns,setAnns]=useState([]);
+
+  // Listen to Firebase auth state
+  useEffect(()=>{
+    return onAuthStateChanged(auth,async user=>{
+      if(user){
+        const snap=await getDoc(doc(db,"users",user.uid));
+        if(snap.exists()) setSession({uid:user.uid,email:user.email,...snap.data()});
+        else setSession({uid:user.uid,email:user.email,username:user.email,level:1});
+      } else { setSession(null); }
+      setAuthLoading(false);
+    });
+  },[]);
+
+  // Live announcements for banner
+  useEffect(()=>{
+    const q=query(collection(db,"announcements"),orderBy("createdAt","desc"));
+    return onSnapshot(q,snap=>setAnns(snap.docs.map(d=>({id:d.id,...d.data()})).filter(a=>a.published)));
+  },[]);
+
+  const handleLogout=async()=>{await signOut(auth);setSession(null);setPage("Home");};
+
+  const guard=p=>{
+    const needsAuth=["Portal","OpLog","EventManager","AnnManager","UserManager"];
+    const needsManage=["EventManager","AnnManager","UserManager"];
+    const needsLog=["OpLog"];
+    if(needsAuth.includes(p)&&!session)return "Login";
+    if(needsManage.includes(p)&&session&&!canManage(session.level))return "Portal";
+    if(needsLog.includes(p)&&session&&!canLog(session.level))return "Portal";
+    return p;
+  };
+  const active=guard(page);
+
+  if(authLoading) return(
+    <div style={{background:"#040608",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Courier New',monospace",color:"#2a6b3c",fontSize:12,letterSpacing:3}}>
+      AUTHENTICATING SESSION...
+    </div>
+  );
+
+  return(
+    <div style={{background:"#040608",color:"#c8d6e5",minHeight:"100vh",fontFamily:"'Courier New',monospace"}}>
+      <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.45;transform:scale(1.5)}}*{box-sizing:border-box;margin:0;padding:0;}::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:#040608;}::-webkit-scrollbar-thumb{background:#0e1a22;}input::placeholder,textarea::placeholder{color:#0e1a22;}select option{background:#040608;color:#b0c4d4;}textarea,input,select,button{font-family:'Courier New',monospace;}`}</style>
+      <Scanlines/>
+      <Navbar page={active} setPage={setPage} session={session} onLogout={handleLogout}/>
+      <div style={{position:"fixed",top:54,left:0,right:0,zIndex:998}}>
+        <AnnouncementBanner announcements={anns}/>
+      </div>
+      <div style={{paddingTop:anns.length?26:0}}>
+        {active==="Home"         && <HomePage setPage={setPage} session={session}/>}
+        {active==="Lore"         && <LorePage/>}
+        {active==="Factions"     && <FactionsPage/>}
+        {active==="Enemies"      && <EnemiesPage/>}
+        {active==="Events"       && <EventsPage/>}
+        {active==="Ranks"        && <RanksPage/>}
+        {active==="Rules"        && <RulesPage/>}
+        {active==="Login"        && <LoginPage onLogin={s=>{setSession(s);setPage("Portal");}}/>}
+        {active==="Portal"       && session && <PersonnelPortal session={session} setPage={setPage} events={[]} announcements={anns}/>}
+        {active==="EventManager" && session && <EventManager session={session}/>}
+        {active==="AnnManager"   && session && <AnnManager/>}
+        {active==="OpLog"        && session && <OpLog session={session}/>}
+        {active==="UserManager"  && session && <UserManager/>}
+      </div>
+      <Footer setPage={setPage}/>
+    </div>
+  );
+}
