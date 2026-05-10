@@ -29,10 +29,14 @@ export default function Navbar({ page, setPage, session, onLogout }: NavbarProps
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          {session && m && (
+          {session && m ? (
             <div onClick={() => go("Portal")} style={{ cursor: "pointer", border: "1px solid " + m.color + "33", padding: "4px 8px", fontFamily: "'Courier New',monospace", fontSize: 9, color: m.color, background: m.color + "06", display: "flex", alignItems: "center", gap: 4 }}>
               <Dot color={m.color} size={5} />{"CL-" + session.level}
             </div>
+          ) : (
+            <button onClick={() => go("Login")} style={{ background: "#00ff8810", border: "1px solid #00ff8844", color: "#00ff88", padding: "6px 14px", cursor: "pointer", fontFamily: "'Courier New',monospace", fontSize: 9, letterSpacing: 2, fontWeight: 700 }}>
+              LOGIN
+            </button>
           )}
           <button onClick={() => setOpen(o => !o)} style={{ background: "transparent", border: "1px solid #1a3a2a", color: "#3a5a6a", padding: "6px 12px", cursor: "pointer", fontFamily: "'Courier New',monospace", fontSize: 14, lineHeight: 1 }}>
             {open ? "✕" : "≡"}
