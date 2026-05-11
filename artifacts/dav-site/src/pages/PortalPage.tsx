@@ -134,8 +134,9 @@ export default function PersonnelPortal({ session, setPage, events, announcement
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 16, marginBottom: 20 }}>
         <div style={CARD}>
-          <div style={{ color: "#1a3a4a", fontSize: 8, letterSpacing: 3, fontFamily: "'Courier New',monospace", marginBottom: 12 }}>PUBLIC ACCESS</div>
+          <div style={{ color: "#1a3a4a", fontSize: 8, letterSpacing: 3, fontFamily: "'Courier New',monospace", marginBottom: 12 }}>DATABASE ACCESS</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button onClick={() => setPage("Roster")} style={{ ...btn("#00ff88"), textAlign: "left", padding: "8px 12px" }}>PERSONNEL ROSTER</button>
             {[
               ["VIEW EVENTS", "Events"],
               ["THREAT DATABASE", "Enemies"],

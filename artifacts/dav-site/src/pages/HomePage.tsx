@@ -36,6 +36,7 @@ export default function HomePage({ setPage, session }: HomePageProps) {
       const t = setTimeout(() => setPhase(p => p + 1), 1200);
       return () => clearTimeout(t);
     }
+    return undefined;
   }, [phase, done]);
 
   return (

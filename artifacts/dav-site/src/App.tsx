@@ -23,10 +23,11 @@ import EventManager from "@/pages/EventManager";
 import AnnManager from "@/pages/AnnManager";
 import OpLog from "@/pages/OpLog";
 import UserManager from "@/pages/UserManager";
+import RosterPage from "@/pages/RosterPage";
 
 type Page = string;
 
-const NEEDS_AUTH = ["Portal", "OpLog", "EventManager", "AnnManager", "UserManager"];
+const NEEDS_AUTH = ["Portal", "OpLog", "EventManager", "AnnManager", "UserManager", "Roster"];
 const NEEDS_MANAGE = ["EventManager", "AnnManager", "UserManager"];
 const NEEDS_LOG = ["OpLog"];
 
@@ -111,6 +112,7 @@ export default function App() {
         {active === "AnnManager" && session && <AnnManager />}
         {active === "OpLog" && session && <OpLog session={session} />}
         {active === "UserManager" && session && <UserManager />}
+        {active === "Roster" && session && <RosterPage />}
       </div>
       {active !== "Home" && <Footer setPage={setPage} />}
     </div>

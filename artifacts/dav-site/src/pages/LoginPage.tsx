@@ -27,6 +27,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       const t = setTimeout(() => setPhase(p => p + 1), 800);
       return () => clearTimeout(t);
     }
+    return undefined;
   }, [phase]);
 
   const tryLogin = async () => {
